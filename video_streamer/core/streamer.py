@@ -4,7 +4,7 @@ import queue
 import time
 from typing import Tuple
 
-from video_streamer.core.camera import TestCamera, LimaCamera, MJPEGCamera, RedisCamera
+from video_streamer.core.camera import Camera
 from video_streamer.core.config import SourceConfiguration
 
 
@@ -17,14 +17,19 @@ class Streamer:
 
     def get_camera(self):
         if self._config.input_uri == "test":
-            camera = TestCamera("TANGO_URI", self._expt, False)
+            camera = Camera(device_uri = "TANGO_URI", cam_type = "test", width = 1024, height = 1360, sleep_time = 0.05, debug  = False)
+            import pdb
+            pdb.set_trace()
+
         elif self._config.input_uri.startswith("http"):
-            camera = MJPEGCamera(self._config.input_uri, self._expt, False)
+            camera = Camera(device_uri = self._config.input_uri, cam_type = "mjpeg", width = 1024, height = 1360, sleep_time = 0.05, debug  = False)
+
         elif self._config.input_uri.startswith("redis"):
-            camera = RedisCamera(self._config.input_uri, self._expt, False)
+            camera = Camera(device_uri = self._config.input_uri, cam_type = "redis", width = 1024, height = 1360, sleep_time=0.05, debug  = False)
+            camera.connection_device(self.cam_type)
         else:
-            camera = LimaCamera(self._config.input_uri, self._expt, False)
-            
+            camera = Camera(device_uri = self._config.input_uri, cam_type = "lima", width = 1024, height = 1360, sleep_time=0.05, debug  = False)
+
         return camera
 
     def start(self) -> None:
@@ -120,7 +125,7 @@ class FFMPGStreamer(Streamer):
             "scale=%s" % out_size,
             "-vcodec",
             "mpeg1video",
-            "http://127.0.0.1:%s/video_input/" % port,
+            "http://195.221.8.84:%s/video_input/" % port,
         ]
 
         stderr = subprocess.DEVNULL if not self._debug else subprocess.STDOUT

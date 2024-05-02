@@ -7,7 +7,6 @@ import io
 import multiprocessing
 import multiprocessing.queues
 import requests
-import redis
 
 from typing import Union, IO, Tuple
 
@@ -20,22 +19,122 @@ except ImportError:
 
 
 class Camera:
-    def __init__(self, device_uri: str, sleep_time: int, debug: bool = False):
+    def __init__(self, device_uri: str,
+                 cam_type: str = None,
+                 width: int = 0,
+                 height: int = 0,
+                 sleep_time: int = 0.05,
+                 debug: bool = False
+                 ):
+
+        self._cam_type = cam_type
+        self._connection_device = None
+        self._valid_cam_types = ["mjpeg", "lima", "redis", "test"]
         self._device_uri = device_uri
         self._sleep_time = sleep_time
         self._debug = debug
-        self._width = -1
-        self._height = -1
+        self._width = width
+        self._height = height
         self._output = None
+        self.testimg_fpath = None
+        self._im = None
+        self._raw_data = None
+        self._last_frame_number = -1
+
+    @property
+    def cam_type(self):
+        """Getter method for the camera type (cam_type) property"""
+        return self._cam_type
+
+    @cam_type.setter
+    def cam_type(self, cam_type):
+        if not self._cam_type in self._valid_cam_types:
+            msg = f'Invalid camera type: {self._cam_type}. Supported options are {self._valid_cam_types}'
+            raise ValueError (msg)
+        else :
+            logging.info(f"{self._camera_type} camera detected!" )
+            self._cam_type = cam_type
+
+    @property
+    def connection_device(self):
+        """Getter method for the connection device"""
+        return self._connection_device
+
+    @connection_device.setter
+    def connection_device(self, cam_type):
+        """Setter method for the conection device based on camera type"""
+
+        if self.cam_type == "lima":
+            try:
+                logging.info("Connecting to %s", self._device_uri)
+                lima_tango_device = DeviceProxy(self._device_uri)
+                lima_tango_device.ping()
+            except Exception:
+                logging.exception("")
+                logging.info("Could not connect to %s, retrying ...", self._device_uri)
+                sys.exit(-1)
+            else:
+                self._connection_device = lima_tango_device
+
+        elif self.cam_type == "redis":
+            import redis
+            self._connection_device = redis.Redis(self._device_uri)
+
+        else :
+            pass
+
+    @property
+    def size(self) -> Tuple[float, float]:
+        return (self._width, self._height)
+
+    @property
+    def width(self):
+        """The width property."""
+        return self._width
+    @property
+    def height(self):
+        """The height property."""
+        return self._height
+
+    def get_frame_number (self):
+        fn = None
+        if self.cam_type == 'lima':
+            fn = self.connection_device.video_last_image_counter
+        elif self.cam_type == "redis":
+            fn = self.connection_device.get("last_image_id")
+        return fn
+
 
     def _poll_once(self) -> None:
-        pass
+        if self.cam_type == "test":
+            self._sleep_time = 0.05
+            testimg_fpath = os.path.join(os.path.dirname(__file__), "fakeimg.jpg")
+            self._im = Image.open(testimg_fpath, "r")
+
+            self._raw_data = self._im.convert("RGB").tobytes()
+            self._width, self._height = self._im.size
+            self._write_data(self._raw_data)
+            time.sleep(self._sleep_time)
+
+        elif self.cam_type in ['lima', 'redis']:
+            frame_number = self.get_frame_number()
+
+            if self._last_frame_number != frame_number:
+                raw_data, width, height, frame_number = self._get_image()
+                self._raw_data = raw_data
+
+                self._write_data(self._raw_data)
+                self._last_frame_number = frame_number
+
+            time.sleep(self._sleep_time / 2)
+
 
     def _write_data(self, data: bytearray):
         if isinstance(self._output, multiprocessing.queues.Queue):
             self._output.put(data)
         else:
             self._output.write(data)
+
 
     def poll_image(self, output: Union[IO, multiprocessing.queues.Queue]) -> None:
         self._output = output
@@ -52,9 +151,6 @@ class Camera:
             finally:
                 pass
 
-    @property
-    def size(self) -> Tuple[float, float]:
-        return (self._width, self._height)
 
     def get_jpeg(self, data, size=(0, 0)) -> bytearray:
         jpeg_data = io.BytesIO()
@@ -69,12 +165,7 @@ class Camera:
         return jpeg_data
 
 
-class MJPEGCamera(Camera):
-    def __init__(self, device_uri: str, sleep_time: int, debug: bool = False):
-        super().__init__(device_uri, sleep_time, debug)
-
     def poll_image(self, output: Union[IO, multiprocessing.queues.Queue]) -> None:
-        # auth=("user", "password")
         r = requests.get(self._device_uri, stream=True)
 
         buffer = bytes()
@@ -94,98 +185,24 @@ class MJPEGCamera(Camera):
     def get_jpeg(self, data, size=None) -> bytearray:
         return data
 
-
-class LimaCamera(Camera):
-    def __init__(self, device_uri: str, sleep_time: int, debug: bool = False):
-        super().__init__(device_uri, sleep_time, debug)
-
-        self._lima_tango_device = self._connect(self._device_uri)
-        _, self._width, self._height, _ = self._get_image()
-        self._sleep_time = sleep_time
-        self._last_frame_number = -1
-
-    def _connect(self, device_uri: str) -> DeviceProxy:
-        try:
-            logging.info("Connecting to %s", device_uri)
-            lima_tango_device = DeviceProxy(device_uri)
-            lima_tango_device.ping()
-        except Exception:
-            logging.exception("")
-            logging.info("Could not connect to %s, retrying ...", device_uri)
-            sys.exit(-1)
-        else:
-            return lima_tango_device
-
     def _get_image(self) -> Tuple[bytearray, float, float, int]:
-        img_data = self._lima_tango_device.video_last_image
+        if self.cam_type == "lima":
 
-        hfmt = ">IHHqiiHHHH"
-        hsize = struct.calcsize(hfmt)
-        _, _, img_mode, frame_number, width, height, _, _, _, _ = struct.unpack(
-            hfmt, img_data[1][:hsize]
-        )
+            img_data = self.connection_device.video_last_image
 
-        raw_data = img_data[1][hsize:]
+            hfmt = ">IHHqiiHHHH"
+            hsize = struct.calcsize(hfmt)
+            _, _, img_mode, frame_number, width, height, _, _, _, _ = struct.unpack(
+                hfmt, img_data[1][:hsize]
+            )
 
-        return raw_data, width, height, frame_number
+            raw_data = img_data[1][hsize:]
 
-    def _poll_once(self) -> None:
-        frame_number = self._lima_tango_device.video_last_image_counter
+            return raw_data, width, height, frame_number
 
-        if self._last_frame_number != frame_number:
-            raw_data, width, height, frame_number = self._get_image()
-            self._raw_data = raw_data
+        elif self.cam_type == "redis":
+            raw_data = self.connection_device.get("last_image_data")
+            frame_number = self.connection_device.get("last_image_id")
+            width, height = self.width, self.height
 
-            self._write_data(self._raw_data)
-            self._last_frame_number = frame_number
-
-        time.sleep(self._sleep_time / 2)
-
-
-class RedisCamera(Camera):
-    def __init__(self, device_uri: str, sleep_time: int, debug: bool = False):
-        super().__init__(device_uri, sleep_time, debug)
-
-        self._redis = self._connect(self._device_uri)
-        _, self._width, self._height, _ = self._get_image()
-        self._sleep_time = sleep_time
-        self._last_frame_number = -1
-        self._width = 1024
-        self._height = 1360
-
-    def _connect(self, device_uri: str):
-        return redis.Redis()
-
-    def _get_image(self) -> Tuple[bytearray, float, float, int]:
-        raw_data = self.redis.get("last_image_data")
-        frame_number = self.redis.get("last_image_id")
-        width, height = 1024, 1360
-
-        return raw_data, width, height, frame_number
-
-    def _poll_once(self) -> None:
-        frame_number = self.redis.get("last_image_id")
-
-        if self._last_frame_number != frame_number:
-            raw_data, width, height, frame_number = self._get_image()
-            self._raw_data = raw_data
-
-            self._write_data(self._raw_data)
-            self._last_frame_number = frame_number
-
-        time.sleep(self._sleep_time / 2)
-
-
-class TestCamera(Camera):
-    def __init__(self, device_uri: str, sleep_time: int, debug: bool = False):
-        super().__init__(device_uri, sleep_time, debug)
-        self._sleep_time = 0.05
-        testimg_fpath = os.path.join(os.path.dirname(__file__), "fakeimg.jpg")
-        self._im = Image.open(testimg_fpath, "r")
-
-        self._raw_data = self._im.convert("RGB").tobytes()
-        self._width, self._height = self._im.size
-
-    def _poll_once(self) -> None:
-        self._write_data(self._raw_data)
-        time.sleep(self._sleep_time)
+            return raw_data, width, height, frame_number
