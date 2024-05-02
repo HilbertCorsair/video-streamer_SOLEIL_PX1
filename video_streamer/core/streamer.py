@@ -18,8 +18,6 @@ class Streamer:
     def get_camera(self):
         if self._config.input_uri == "test":
             camera = Camera(device_uri = "TANGO_URI", cam_type = "test", width = 1024, height = 1360, sleep_time = 0.05, debug  = False)
-            import pdb
-            pdb.set_trace()
 
         elif self._config.input_uri.startswith("http"):
             camera = Camera(device_uri = self._config.input_uri, cam_type = "mjpeg", width = 1024, height = 1360, sleep_time = 0.05, debug  = False)
