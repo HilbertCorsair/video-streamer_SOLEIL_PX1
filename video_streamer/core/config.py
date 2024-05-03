@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 class SourceConfiguration(BaseModel):
     input_uri: str = Field("", description="URI for input device")
+    cam_type: str = Field("", description="Type of camera used: Options are: test, lima, mjpeg, redis")
     quality: int = Field(4, description="FFMpeg Quality")
     format: str = Field("MPEG1", description="Output format MPEG1 or MJPEG")
     hash: str = Field("", description="Server url postfix/trail")

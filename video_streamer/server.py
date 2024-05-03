@@ -9,19 +9,19 @@ from video_streamer.core.streamer import FFMPGStreamer, MJPEGStreamer
 from fastapi.templating import Jinja2Templates
 
 
-def create_app(config, host, port, debug):
+def create_app(config, host, port, cam_type, debug):
     app = None
     app_cls = available_applications.get(config.format, None)
 
     if app_cls:
-        app = app_cls(config, host, port, debug)
+        app = app_cls(config, host, port,cam_type, debug)
 
     return app
 
 
-def create_mjpeg_app(config, host, port, debug):
+def create_mjpeg_app(config, host, port, cam_type, debug):
     app = FastAPI()
-    streamer = MJPEGStreamer(config, host, port, debug)
+    streamer = MJPEGStreamer(config, host, port, cam_type, debug)
     ui_template_root = os.path.join(os.path.dirname(__file__), "ui/template")
     templates = Jinja2Templates(directory=ui_template_root)
 
@@ -52,10 +52,10 @@ def create_mjpeg_app(config, host, port, debug):
     return app
 
 
-def create_mpeg1_app(config, host, port, debug):
+def create_mpeg1_app(config, host, port, cam_type, debug):
     app = FastAPI()
     manager = WebsocketHandler()
-    streamer = FFMPGStreamer(config, host, port, debug)
+    streamer = FFMPGStreamer(config, host, port, cam_type, debug)
     ui_static_root = os.path.join(os.path.dirname(__file__), "ui/static")
     ui_template_root = os.path.join(os.path.dirname(__file__), "ui/template")
     templates = Jinja2Templates(directory=ui_template_root)

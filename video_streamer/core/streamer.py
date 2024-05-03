@@ -9,24 +9,20 @@ from video_streamer.core.config import SourceConfiguration
 
 
 class Streamer:
-    def __init__(self, config: SourceConfiguration, host: str, port: int, debug: bool):
+    def __init__(self, config: SourceConfiguration, host: str, port: int, cam_type, debug: bool):
         self._config = config
         self._host = host
         self._port = port
+        self._cam_type = cam_type
         self._debug = debug
 
     def get_camera(self):
+
         if self._config.input_uri == "test":
             camera = Camera(device_uri = "TANGO_URI", cam_type = "test", width = 1024, height = 1360, sleep_time = 0.05, debug  = False)
 
-        elif self._config.input_uri.startswith("http"):
-            camera = Camera(device_uri = self._config.input_uri, cam_type = "mjpeg", width = 1024, height = 1360, sleep_time = 0.05, debug  = False)
-
-        elif self._config.input_uri.startswith("redis"):
-            camera = Camera(device_uri = self._config.input_uri, cam_type = "redis", width = 1024, height = 1360, sleep_time=0.05, debug  = False)
-            camera.connection_device(self.cam_type)
         else:
-            camera = Camera(device_uri = self._config.input_uri, cam_type = "lima", width = 1024, height = 1360, sleep_time=0.05, debug  = False)
+            camera = Camera(device_uri = self._config.input_uri, cam_type = self._config.cam_type, width = 1024, height = 1360, sleep_time = 0.05, debug  = False)
 
         return camera
 
@@ -38,8 +34,8 @@ class Streamer:
 
 
 class MJPEGStreamer(Streamer):
-    def __init__(self, config: SourceConfiguration, host: str, port: int, debug: bool):
-        super().__init__(config, host, port, debug)
+    def __init__(self, config: SourceConfiguration, host: str, port: int,cam_type: str, debug: bool):
+        super().__init__(config, host, port, cam_type, debug)
         self._poll_image_p = None
         self._expt = 0.05
         self._camera = self.get_camera()
@@ -78,8 +74,8 @@ class MJPEGStreamer(Streamer):
 
 
 class FFMPGStreamer(Streamer):
-    def __init__(self, config: SourceConfiguration, host: str, port: int, debug: bool):
-        super().__init__(config, host, port, debug)
+    def __init__(self, config: SourceConfiguration, host: str, port: int,cam_type: str, debug: bool):
+        super().__init__(config, host, port, cam_type, debug)
         self._ffmpeg_process = None
         self._poll_image_p = None
         self._expt = 0.02

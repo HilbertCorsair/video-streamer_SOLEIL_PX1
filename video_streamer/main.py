@@ -22,7 +22,7 @@ def parse_args() -> None:
         "--uri",
         dest="uri",
         help="Tango device URI",
-        default="test",
+        default="redis",
     )
 
     opt_parser.add_argument(
@@ -76,6 +76,13 @@ def parse_args() -> None:
     )
 
     opt_parser.add_argument(
+        "-ct",
+        "--cam_type",
+        dest="cam_type",
+        help="Type of camera used : lima, mjpeg, redis, or test for testing the streamer with the sample mage",
+        default="test",
+    )
+    opt_parser.add_argument(
         "-d",
         "--debug",
         action="store_true",
@@ -110,6 +117,7 @@ def run() -> None:
                         "quality": args.quality,
                         "format": args.output_format,
                         "hash": args.hash,
+                        "cam_type": args.cam_type,
                         "size": _size,
                     }
                 }
@@ -118,7 +126,7 @@ def run() -> None:
 
     for uri, source_config in config.sources.items():
         host, port = uri.split(":")
-        app = create_app(source_config, host, int(port), debug=args.debug)
+        app = create_app(source_config, host, int(port), cam_type=args.cam_type, debug=args.debug)
 
         if app:
             config = uvicorn.Config(
