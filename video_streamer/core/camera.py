@@ -56,6 +56,10 @@ class Camera:
             self._cam_type = cam_type
 
     @property
+    def device_uri(self):
+        return self._device_uri
+
+    @property
     def connection_device(self):
         """Getter method for the connection device"""
         return self._connection_device
@@ -66,23 +70,24 @@ class Camera:
 
         if self.cam_type == "lima":
             try:
-                logging.info("Connecting to %s", self._device_uri)
-                lima_tango_device = DeviceProxy(self._device_uri)
+                logging.info("Connecting to %s", self.device_uri)
+                lima_tango_device = DeviceProxy(self.device_uri)
                 lima_tango_device.ping()
             except Exception:
                 logging.exception("")
-                logging.info("Could not connect to %s, retrying ...", self._device_uri)
+                logging.info("Could not connect to %s, retrying ...", self.device_uri)
                 sys.exit(-1)
             else:
                 self._connection_device = lima_tango_device
 
         elif self.cam_type == "redis":
             import redis
-            self._connection_device = redis.Redis(self._device_uri)
+            self._connection_device = redis.Redis(self.device_uri)
 
         else :
             pass
 
+    
     @property
     def size(self) -> Tuple[float, float]:
         return (self._width, self._height)
@@ -166,7 +171,7 @@ class Camera:
 
 
     def poll_image(self, output: Union[IO, multiprocessing.queues.Queue]) -> None:
-        r = requests.get(self._device_uri, stream=True)
+        r = requests.get(self.device_uri, stream=True)
 
         buffer = bytes()
         while True:
@@ -179,7 +184,7 @@ class Camera:
                     print("Received unexpected status code {}".format(r.status_code))
             except requests.exceptions.StreamConsumedError:
                 output.put(buffer)
-                r = requests.get(self._device_uri, stream=True)
+                r = requests.get(self.device_uri, stream=True)
                 buffer = bytes()
 
     def get_jpeg(self, data, size=None) -> bytearray:
