@@ -22,7 +22,7 @@ class Streamer:
             camera = Camera(device_uri = "TANGO_URI", cam_type = "test", width = 1024, height = 1360, sleep_time = 0.05, debug  = False)
 
         else:
-            camera = Camera(device_uri = self._config.input_uri, cam_type = self._config.cam_type, width = 1024, height = 1360, sleep_time = 0.05, debug  = False)
+            camera = Camera(device_uri = self._config.input_uri, cam_type = self._config.cam_type, width = 1360, height = 1024, sleep_time = 0.05, debug  = False)
 
         return camera
 
@@ -99,6 +99,7 @@ class FFMPGStreamer(Streamer):
         :rtype: tuple
         """
         source_size = "%s:%s" % source_size
+
         out_size = "%s:%s" % out_size
 
         ffmpeg_args = [

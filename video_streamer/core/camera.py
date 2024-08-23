@@ -7,6 +7,7 @@ import io
 import multiprocessing
 import multiprocessing.queues
 import requests
+import redis
 
 from typing import Union, IO, Tuple
 
@@ -61,32 +62,13 @@ class Camera:
 
     @property
     def connection_device(self):
-        """Getter method for the connection device"""
+        """Getter method for the host uri"""
         return self._connection_device
-
+    
     @connection_device.setter
-    def connection_device(self, cam_type):
-        """Setter method for the conection device based on camera type"""
-
-        if self.cam_type == "lima":
-            try:
-                logging.info("Connecting to %s", self.device_uri)
-                lima_tango_device = DeviceProxy(self.device_uri)
-                lima_tango_device.ping()
-            except Exception:
-                logging.exception("")
-                logging.info("Could not connect to %s, retrying ...", self.device_uri)
-                sys.exit(-1)
-            else:
-                self._connection_device = lima_tango_device
-
-        elif self.cam_type == "redis":
-            import redis
-            self._connection_device = redis.Redis(self.device_uri)
-
-        else :
-            pass
-
+    def connection_device(self, connection_obj):
+        self._connection_device = connection_obj
+        
     
     @property
     def size(self) -> Tuple[float, float]:
@@ -109,13 +91,11 @@ class Camera:
             fn = self.connection_device.get("last_image_id")
         return fn
 
-
     def _poll_once(self) -> None:
         if self.cam_type == "test":
             self._sleep_time = 0.05
             testimg_fpath = os.path.join(os.path.dirname(__file__), "fakeimg.jpg")
             self._im = Image.open(testimg_fpath, "r")
-
             self._raw_data = self._im.convert("RGB").tobytes()
             self._width, self._height = self._im.size
             self._write_data(self._raw_data)
@@ -127,35 +107,15 @@ class Camera:
             if self._last_frame_number != frame_number:
                 raw_data, width, height, frame_number = self._get_image()
                 self._raw_data = raw_data
-
                 self._write_data(self._raw_data)
                 self._last_frame_number = frame_number
-
             time.sleep(self._sleep_time / 2)
-
 
     def _write_data(self, data: bytearray):
         if isinstance(self._output, multiprocessing.queues.Queue):
             self._output.put(data)
         else:
             self._output.write(data)
-
-
-    def poll_image(self, output: Union[IO, multiprocessing.queues.Queue]) -> None:
-        self._output = output
-
-        while True:
-            try:
-                self._poll_once()
-            except KeyboardInterrupt:
-                sys.exit(0)
-            except BrokenPipeError:
-                sys.exit(0)
-            except Exception:
-                logging.exception("")
-            finally:
-                pass
-
 
     def get_jpeg(self, data, size=(0, 0)) -> bytearray:
         jpeg_data = io.BytesIO()
@@ -168,38 +128,64 @@ class Camera:
         jpeg_data = jpeg_data.getvalue()
 
         return jpeg_data
-
+    
 
     def poll_image(self, output: Union[IO, multiprocessing.queues.Queue]) -> None:
-        r = requests.get(self.device_uri, stream=True)
+        self._output = output
+        if self.cam_type == "redis":
+            host, port = self.device_uri.split(':')
+            self.connection_device  = redis.StrictRedis(host=host, port=port)
+            print("Iniated redis connection object")
+            while True:
+                try:
+                    self._poll_once()
+                except KeyboardInterrupt:
+                    sys.exit(0)
+                except BrokenPipeError:
+                    sys.exit(0)
+                except Exception:
+                    logging.exception("")
+                finally:
+                    pass
 
-        buffer = bytes()
-        while True:
-            try:
-                if r.status_code == 200:
-                    for chunk in r.iter_content(chunk_size=1024):
-                        buffer += chunk
+        elif self.cam_type == "mjpeg":
+            r = requests.get(self._device_uri, stream=True)
+            buffer = bytes()
+            while True:
+                try:
+                    if r.status_code == 200:
+                        for chunk in r.iter_content(chunk_size=1024):
+                            buffer += chunk
+                    else:
+                        print( "Received unexpected status code {}".format(r.status_code) )
+                except requests.exceptions.StreamConsumedError:
+                    output.put(buffer)
+                    r = requests.get(self._device_uri, stream=True)
+                    buffer = bytes()
 
-                else:
-                    print("Received unexpected status code {}".format(r.status_code))
-            except requests.exceptions.StreamConsumedError:
-                output.put(buffer)
-                r = requests.get(self.device_uri, stream=True)
-                buffer = bytes()
+        else:
+            print(f"Camera type is: {self.cam_type}.")
 
-    def get_jpeg(self, data, size=None) -> bytearray:
-        return data
+  
 
     def _get_image(self) -> Tuple[bytearray, float, float, int]:
         if self.cam_type == "lima":
+            try:
+                logging.info("Connecting to %s", self.device_uri)
+                self.connection_device = DeviceProxy(self.device_uri)
+                self.connection_device.ping()
+            except Exception:
+                logging.exception("")
+                logging.info("Could not connect to %s, retrying ...", device_uri)
+                sys.exit(-1)
+           
 
             img_data = self.connection_device.video_last_image
 
             hfmt = ">IHHqiiHHHH"
             hsize = struct.calcsize(hfmt)
             _, _, img_mode, frame_number, width, height, _, _, _, _ = struct.unpack(
-                hfmt, img_data[1][:hsize]
-            )
+                hfmt, img_data[1][:hsize])
 
             raw_data = img_data[1][hsize:]
 
@@ -209,5 +195,4 @@ class Camera:
             raw_data = self.connection_device.get("last_image_data")
             frame_number = self.connection_device.get("last_image_id")
             width, height = self.width, self.height
-
             return raw_data, width, height, frame_number
